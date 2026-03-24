@@ -1,120 +1,56 @@
-name: OrangeFox - Build Cubot P80 (MT6771)
+name: PBRP - Build Cubot P80 (Android 12.1)
 
 on:
   workflow_dispatch:
-    inputs:
-      MANIFEST_BRANCH:
-        description: 'OrangeFox Branch'
-        required: true
-        default: '12.1'
-        type: choice
-        options:
-        - 12.1
-        - 11.0
-      DEVICE_TREE:
-        description: 'Link da sua Device Tree'
-        required: true
-        default: 'https://github.com/lordkaus/android_device_cubot_p80'
-      DEVICE_TREE_BRANCH:
-        description: 'Branch da sua Tree'
-        required: true
-        default: 'main'
-      DEVICE_PATH:
-        description: 'Caminho do dispositivo na Tree'
-        required: true
-        default: 'device/cubot/p80'
-      DEVICE_NAME:
-        description: 'Codinome do Dispositivo'
-        required: true
-        default: 'p80'
-      BUILD_TARGET:
-        description: 'Alvo da compilação'
-        required: true
-        default: 'recovery'
-        type: choice
-        options:
-        - recovery
-        - boot
 
 jobs:
   build:
-    name: Build OFRP by ${{ github.actor }}
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    name: Build PBRP by ${{ github.actor }}
+    runs-on: ubuntu-20.04
     permissions:
       contents: write
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Clean-up Environment
-      uses: rokibhasansagar/slimhub_actions@main
 
-    - name: Set Swap Space
-      uses: pierotofy/set-swap-space@master
-      with:
-        swap-size-gb: 24
-      
-    - name: Build Environment Setup
+    - name: Clean-up Environment
       run: |
+        sudo rm -rf /usr/share/dotnet /etc/mysql /var/lib/mysql /usr/local/lib/android /opt/ghc
         sudo apt update
-        sudo apt -y upgrade
-        git clone https://gitlab.com/OrangeFox/misc/scripts
-        cd scripts
-        sudo bash setup/android_build_env.sh
-      
-    - name: Sync OrangeFox Manifest
+        sudo apt install -y bc build-essential zip curl libstdc++6 git wget python3 python3-pip
+
+    - name: Install Repo Tool
       run: |
-        mkdir -p ${GITHUB_WORKSPACE}/OrangeFox
-        cd ${GITHUB_WORKSPACE}/OrangeFox
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+
+    - name: Initialize and Sync PBRP
+      run: |
+        mkdir ~/PBRP
+        cd ~/PBRP
         git config --global user.name "lordkaus"
         git config --global user.email "lmatostmelo@gmail.com"
-        git clone https://gitlab.com/OrangeFox/sync.git
-        cd sync
-        ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb.git -b android-12.1 --depth=1
+        repo sync -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-    - name: Clone Cubot P80 Device Tree
+    - name: Clone Device Tree
       run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
-        cd ${{ github.event.inputs.DEVICE_PATH }}
-        echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
-
-    - name: Fix Brightness Flag (MTK)
-      run: |
-        FILE=${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}/BoardConfig.mk
-        grep -q 'TW_MAX_BRIGHTNESS' $FILE || echo 'TW_MAX_BRIGHTNESS := 255' >> $FILE
+        cd ~/PBRP
+        git clone https://github.com/lordkaus/android_device_cubot_p80 -b main device/cubot/p80
 
     - name: Run Compilation
       run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        cd ~/PBRP
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # Mudamos para twrp_p80 para garantir compatibilidade com Android 12.1
-        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-userdebug
+        lunch twrp_p80-eng || lunch twrp_p80-userdebug
         make clean
-        mka adbd ${{ github.event.inputs.BUILD_TARGET }}image
+        mka pbrp -j$(nproc --all)
 
-    - name: Prepare Artifacts
-      run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        find out/target/product/${{ github.event.inputs.DEVICE_NAME }} -name "OrangeFox*.img" -exec mv {} ${{ github.event.inputs.BUILD_TARGET }}.img \;
-        if [ -f ${{ github.event.inputs.BUILD_TARGET }}.img ]; then
-          echo "CHECK_IMG_IS_OK=true" >> $GITHUB_ENV
-          echo "FINAL_PATH=$(pwd)" >> $GITHUB_ENV
-        fi
-
-    - name: Upload to Release
-      if: env.CHECK_IMG_IS_OK == 'true'
-      uses: softprops/action-gh-release@v1
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
       with:
-        files: |
-          ${{ env.FINAL_PATH }}/${{ github.event.inputs.BUILD_TARGET }}.img
-        name: OrangeFox Unofficial Cubot P80 (MT6771)
-        tag_name: ${{ github.run_id }}
-        body: |
-          Build realizado com sucesso para o Cubot P80!
-          Dispositivo: ${{ github.event.inputs.DEVICE_NAME }}
-          Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}
-          Commit: ${{ env.COMMIT_ID }}
+        name: PBRP-Cubot-P80-IMG
+        path: ~/PBRP/out/target/product/p80/*.img
