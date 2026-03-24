@@ -91,15 +91,17 @@ jobs:
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
+        # CORREÇÃO: Usando orange_p80 para bater com o nome do seu arquivo .mk
+        lunch orange_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch orange_${{ github.event.inputs.DEVICE_NAME }}-userdebug
         make clean
         mka adbd ${{ github.event.inputs.BUILD_TARGET }}image
 
     - name: Prepare Artifacts
       run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}
-        if [ -f OrangeFox*.img ]; then
-          mv OrangeFox*.img ${{ github.event.inputs.BUILD_TARGET }}.img
+        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        # Procura o arquivo .img recursivamente na pasta out para evitar erros de caminho
+        find out/target/product/${{ github.event.inputs.DEVICE_NAME }} -name "OrangeFox*.img" -exec mv {} ${{ github.event.inputs.BUILD_TARGET }}.img \;
+        if [ -f ${{ github.event.inputs.BUILD_TARGET }}.img ]; then
           echo "CHECK_IMG_IS_OK=true" >> $GITHUB_ENV
           echo "FINAL_PATH=$(pwd)" >> $GITHUB_ENV
         fi
@@ -114,6 +116,6 @@ jobs:
         tag_name: ${{ github.run_id }}
         body: |
           Build realizado com sucesso para o Cubot P80!
-          Kernel: Stock extraído
+          Dispositivo: ${{ github.event.inputs.DEVICE_NAME }}
           Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}
           Commit: ${{ env.COMMIT_ID }}
